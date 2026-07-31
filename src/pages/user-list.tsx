@@ -22,6 +22,7 @@ import {
 interface MemberUser {
   id: number;
   identityProvider?: string | null;
+  username?: string | null;
   mobile?: string | null;
   nickname?: string | null;
   avatar?: string | null;
@@ -67,7 +68,7 @@ export default function MemberUserListPage() {
   const canUpdate = usePermission("member:user:update");
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(20);
-  const [draft, setDraft] = React.useState({ nickname: "", mobile: "", status: "", includeRobot: false });
+  const [draft, setDraft] = React.useState({ uid: "", username: "", nickname: "", mobile: "", status: "", includeRobot: false });
   const [filters, setFilters] = React.useState(draft);
   const [selected, setSelected] = React.useState<MemberUser | null>(null);
   const [editing, setEditing] = React.useState<MemberEditState | null>(null);
@@ -76,6 +77,9 @@ export default function MemberUserListPage() {
   const [actionError, setActionError] = React.useState<string | null>(null);
 
   const params = new URLSearchParams({ pageNo: String(page), pageSize: String(pageSize), includeRobot: String(filters.includeRobot) });
+  // 只带上非空条件：服务端把空串当「没填」，发过去只会白跑一次 LIKE '%%'。
+  if (filters.uid) params.set("uid", filters.uid);
+  if (filters.username) params.set("username", filters.username);
   if (filters.nickname) params.set("nickname", filters.nickname);
   if (filters.mobile) params.set("mobile", filters.mobile);
   if (filters.status) params.set("status", filters.status);
@@ -144,7 +148,7 @@ export default function MemberUserListPage() {
   function submitFilters(event: React.FormEvent) {
     event.preventDefault();
     setPage(1);
-    setFilters({ nickname: draft.nickname.trim(), mobile: draft.mobile.trim(), status: draft.status, includeRobot: draft.includeRobot });
+    setFilters({ uid: draft.uid.trim(), username: draft.username.trim(), nickname: draft.nickname.trim(), mobile: draft.mobile.trim(), status: draft.status, includeRobot: draft.includeRobot });
   }
 
   return (
@@ -152,11 +156,13 @@ export default function MemberUserListPage() {
       <PageHeader eyebrow="MEMBER DIRECTORY" title="会员列表" description="管理产品会员资料、状态、等级分组与积分。IM 用户身份由 PrivChat 模块独立维护。" actions={<><span className="rounded-full bg-[var(--primary-soft)] px-3 py-1.5 text-xs font-bold text-[var(--primary)]">{query.data?.total ?? 0} MEMBERS</span><Button variant="outline" onClick={() => query.refetch()} disabled={query.isFetching}>刷新</Button></>} />
       <FilterPanel onSubmit={submitFilters}>
         <div className="admin-filter-grid admin-filter-grid-member">
+          <Field label="用户编号"><Input value={draft.uid} onChange={(event) => setDraft({ ...draft, uid: event.target.value.replace(/\D/g, "") })} placeholder="完整编号" inputMode="numeric" /></Field>
+          <Field label="用户名"><Input value={draft.username} onChange={(event) => setDraft({ ...draft, username: event.target.value })} placeholder="输入用户名" /></Field>
           <Field label="会员昵称"><Input value={draft.nickname} onChange={(event) => setDraft({ ...draft, nickname: event.target.value })} placeholder="输入昵称" /></Field>
           <Field label="手机号"><Input value={draft.mobile} onChange={(event) => setDraft({ ...draft, mobile: event.target.value })} placeholder="输入手机号" /></Field>
           <Field label="状态"><Select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })}><option value="">全部状态</option><option value="1">启用</option><option value="0">停用</option></Select></Field>
           <label className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-xs font-semibold text-[var(--muted-foreground)]"><input type="checkbox" checked={draft.includeRobot} onChange={(event) => setDraft({ ...draft, includeRobot: event.target.checked })} />包含机器人</label>
-          <div className="flex gap-2"><Button type="button" variant="ghost" onClick={() => { const next = { nickname: "", mobile: "", status: "", includeRobot: false }; setDraft(next); setFilters(next); setPage(1); }}>重置</Button><Button type="submit">查询</Button></div>
+          <div className="flex gap-2"><Button type="button" variant="ghost" onClick={() => { const next = { uid: "", username: "", nickname: "", mobile: "", status: "", includeRobot: false }; setDraft(next); setFilters(next); setPage(1); }}>重置</Button><Button type="submit">查询</Button></div>
         </div>
       </FilterPanel>
       <section className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-[0_12px_34px_rgba(30,52,44,0.05)]">
@@ -168,7 +174,7 @@ export default function MemberUserListPage() {
         {selected && <div className="space-y-4">
           <div className="rounded-2xl bg-[var(--hero)] p-5 text-white"><div className="text-xl font-bold">{selected.nickname || "未设置昵称"}</div><div className="mt-1 text-xs text-white/45">Member #{selected.id}</div><div className="mt-5 flex items-center justify-between border-t border-white/10 pt-4 text-xs"><span className="text-white/45">当前积分</span><span className="font-bold text-[var(--primary)]">{selected.point ?? 0}</span></div></div>
           <dl className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)]">{[
-            ["手机号", selected.mobile || "未绑定"], ["身份来源", selected.identityProvider || "member"], ["等级", selected.levelName || "默认等级"], ["分组", selected.groupName || "未分组"], ["经验值", String(selected.experience ?? 0)], ["注册 IP", selected.registerIp || "-"], ["登录 IP", selected.loginIp || "-"], ["登录地区", selected.loginRegion || "-"], ["最近登录", formatDateTime(selected.loginDate)], ["注册时间", formatDateTime(selected.createdAt)],
+            ["用户名", selected.username || "未设置"], ["手机号", selected.mobile || "未绑定"], ["身份来源", selected.identityProvider || "member"], ["等级", selected.levelName || "默认等级"], ["分组", selected.groupName || "未分组"], ["经验值", String(selected.experience ?? 0)], ["注册 IP", selected.registerIp || "-"], ["登录 IP", selected.loginIp || "-"], ["登录地区", selected.loginRegion || "-"], ["最近登录", formatDateTime(selected.loginDate)], ["注册时间", formatDateTime(selected.createdAt)],
           ].map(([label, value]) => <div key={label} className="grid grid-cols-[100px_1fr] gap-4 border-b border-[var(--muted)] px-4 py-3.5 last:border-0"><dt className="text-xs font-semibold text-[var(--muted-foreground)]">{label}</dt><dd className="break-all text-right text-xs font-semibold text-[var(--foreground)]">{value}</dd></div>)}</dl>
         </div>}
       </Drawer>

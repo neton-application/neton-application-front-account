@@ -66,12 +66,16 @@ function LoginRegion({ value }: { value: string }) {
 export default function MemberUserListPage() {
   const queryClient = useQueryClient();
   const canUpdate = usePermission("member:user:update");
+  const canResetPassword = usePermission("member:user:update-password");
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(20);
   const [draft, setDraft] = React.useState({ uid: "", username: "", nickname: "", mobile: "", status: "", includeRobot: false });
   const [filters, setFilters] = React.useState(draft);
   const [selected, setSelected] = React.useState<MemberUser | null>(null);
   const [editing, setEditing] = React.useState<MemberEditState | null>(null);
+  const [passwordUser, setPasswordUser] = React.useState<MemberUser | null>(null);
+  const [password, setPassword] = React.useState("");
+  const [passwordAgain, setPasswordAgain] = React.useState("");
   const [pointUser, setPointUser] = React.useState<MemberUser | null>(null);
   const [pointDelta, setPointDelta] = React.useState(0);
   const [actionError, setActionError] = React.useState<string | null>(null);
@@ -108,6 +112,18 @@ export default function MemberUserListPage() {
     onError: (error: Error) => setActionError(error.message),
   });
 
+  /**
+   * 管理员重设会员登录密码：不需要旧密码，两次输入一致 + 至少 8 位（与注册链路同一条规则）。
+   *
+   * 明文只用于这一次请求：成功或关窗都把两个输入清空，不让它留在组件状态里等着被
+   * 下一次打开抽屉时看见。
+   */
+  const passwordMutation = useMutation({
+    mutationFn: ({ id, password }: { id: number; password: string }) => apiWrite<void>("/admin/member/user/update-password", "PUT", { id, password }),
+    onSuccess: () => { setPasswordUser(null); setPassword(""); setPasswordAgain(""); },
+    onError: (error: Error) => setActionError(error.message),
+  });
+
   const pointMutation = useMutation({
     mutationFn: ({ id, point }: { id: number; point: number }) => apiWrite<void>("/admin/member/user/update-point", "PUT", { id, point }),
     onSuccess: async () => {
@@ -141,7 +157,7 @@ export default function MemberUserListPage() {
       header: "操作",
       headerClassName: "text-right",
       className: "text-right",
-      cell: (user) => <RowActions primary={[{ label: "详情", onClick: () => setSelected(user) }, ...(canUpdate ? [{ label: "编辑", onClick: () => { setActionError(null); setEditing({ id: user.id, mobile: user.mobile ?? "", nickname: user.nickname ?? "", avatar: user.avatar ?? "", status: user.status ?? 1, levelId: user.levelId ? String(user.levelId) : "", groupId: user.groupId ? String(user.groupId) : "" }); } }] : [])]} more={canUpdate ? [{ label: "调整积分", onClick: () => { setActionError(null); setPointDelta(0); setPointUser(user); } }] : []} />,
+      cell: (user) => <RowActions primary={[{ label: "详情", onClick: () => setSelected(user) }, ...(canUpdate ? [{ label: "编辑", onClick: () => { setActionError(null); setEditing({ id: user.id, mobile: user.mobile ?? "", nickname: user.nickname ?? "", avatar: user.avatar ?? "", status: user.status ?? 1, levelId: user.levelId ? String(user.levelId) : "", groupId: user.groupId ? String(user.groupId) : "" }); } }] : [])]} more={[...(canUpdate ? [{ label: "调整积分", onClick: () => { setActionError(null); setPointDelta(0); setPointUser(user); } }] : []), ...(canResetPassword ? [{ label: "重设密码", onClick: () => { setActionError(null); setPassword(""); setPasswordAgain(""); setPasswordUser(user); } }] : [])]} />,
     },
   ];
 
@@ -191,6 +207,15 @@ export default function MemberUserListPage() {
         </form>}
       </Drawer>
 
+      <Drawer open={Boolean(passwordUser)} onClose={() => { setPasswordUser(null); setPassword(""); setPasswordAgain(""); }} title="重设密码" description={passwordUser ? `会员 ${passwordUser.nickname || passwordUser.id}（管理员改密不需要旧密码）` : undefined} footer={<><Button variant="ghost" onClick={() => { setPasswordUser(null); setPassword(""); setPasswordAgain(""); }}>取消</Button><Button disabled={passwordMutation.isPending || password.length < 8 || password !== passwordAgain} onClick={() => passwordUser && passwordMutation.mutate({ id: passwordUser.id, password })}>{passwordMutation.isPending ? "提交中…" : "确认重设"}</Button></>}>
+        <div className="space-y-4">
+          <Field label="新密码"><Input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="至少 8 位" /></Field>
+          <Field label="确认新密码"><Input type="password" autoComplete="new-password" value={passwordAgain} onChange={(e) => setPasswordAgain(e.target.value)} placeholder="再输入一次" /></Field>
+          {password.length > 0 && password.length < 8 && <p className="text-xs text-red-600">密码至少 8 位（与注册链路同一条规则）。</p>}
+          {passwordAgain.length > 0 && password !== passwordAgain && <p className="text-xs text-red-600">两次输入不一致。</p>}
+          <p className="text-[11px] text-[var(--muted-foreground)]">改完请通过安全渠道告知本人；这里不回显、也不保存明文。</p>
+        </div>
+      </Drawer>
       <Drawer open={Boolean(pointUser)} onClose={() => setPointUser(null)} title="调整积分" description="积分变更会写入会员积分流水。" footer={<><Button variant="ghost" onClick={() => setPointUser(null)}>取消</Button><Button onClick={() => pointUser && pointDelta !== 0 && pointMutation.mutate({ id: pointUser.id, point: pointDelta })} disabled={pointMutation.isPending || pointDelta === 0}>{pointMutation.isPending ? "处理中…" : "确认调整"}</Button></>}>
         {pointUser && <div className="space-y-4">{actionError && <div className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">{actionError}</div>}<div className="rounded-2xl bg-[var(--hero)] p-5 text-white"><div className="text-xs text-white/45">当前积分</div><div className="mt-2 text-2xl font-semibold">{pointUser.point ?? 0}</div><div className="mt-4 text-xs text-[var(--primary)]">调整后 {(pointUser.point ?? 0) + pointDelta}</div></div><Field label="变更值（增加填正数，扣减填负数）"><Input type="number" value={pointDelta} onChange={(event) => setPointDelta(Number(event.target.value))} /></Field></div>}
       </Drawer>

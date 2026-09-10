@@ -5,6 +5,7 @@ export default defineFrontModule({
   contractVersion: "1.0.0",
   pages: [
     { key: "member/user/index", path: "/member/user", entry: "user-list", rendering: "client" },
+    { key: "member/user/detail", path: "/member/user/:id", entry: "user-detail", rendering: "client", standalone: true, identity: ["id"], title: "会员详情 · :id" },
     { key: "member/tag/index", path: "/member/tag", entry: "tag-list", rendering: "client" },
     { key: "member/level/index", path: "/member/level", entry: "level-list", rendering: "client" },
     { key: "member/group/index", path: "/member/group", entry: "group-list", rendering: "client" },

@@ -14,7 +14,8 @@
     "@neton/application-front-resource": "^1.0.0",
     "@neton/application-front-runtime": "^1.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "@neton/application-front-workspace": "^1.0.0"
   },
   "devDependencies": {
     "@neton/application-front-contract": "file:../neton-application-front/packages/front-contract",
@@ -25,7 +26,8 @@
     "@types/react-dom": "^19.0.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "@neton/application-front-workspace": "file:../neton-application-front/packages/front-workspace"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

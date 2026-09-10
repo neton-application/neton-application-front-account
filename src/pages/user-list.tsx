@@ -69,7 +69,7 @@ export default function MemberUserListPage() {
   const canResetPassword = usePermission("member:user:update-password");
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(20);
-  const [draft, setDraft] = React.useState({ uid: "", username: "", nickname: "", mobile: "", status: "", includeRobot: false });
+  const [draft, setDraft] = React.useState({ uid: "", username: "", nickname: "", mobile: "", status: "", levelId: "", groupId: "", includeRobot: false, includeGuest: false });
   const [filters, setFilters] = React.useState(draft);
   const [selected, setSelected] = React.useState<MemberUser | null>(null);
   const [editing, setEditing] = React.useState<MemberEditState | null>(null);
@@ -80,13 +80,15 @@ export default function MemberUserListPage() {
   const [pointDelta, setPointDelta] = React.useState(0);
   const [actionError, setActionError] = React.useState<string | null>(null);
 
-  const params = new URLSearchParams({ pageNo: String(page), pageSize: String(pageSize), includeRobot: String(filters.includeRobot) });
+  const params = new URLSearchParams({ pageNo: String(page), pageSize: String(pageSize), includeRobot: String(filters.includeRobot), includeGuest: String(filters.includeGuest) });
   // 只带上非空条件：服务端把空串当「没填」，发过去只会白跑一次 LIKE '%%'。
   if (filters.uid) params.set("uid", filters.uid);
   if (filters.username) params.set("username", filters.username);
   if (filters.nickname) params.set("nickname", filters.nickname);
   if (filters.mobile) params.set("mobile", filters.mobile);
   if (filters.status) params.set("status", filters.status);
+  if (filters.levelId) params.set("levelId", filters.levelId);
+  if (filters.groupId) params.set("groupId", filters.groupId);
 
   const query = useQuery({
     queryKey: ["member", "users", page, pageSize, filters],
@@ -157,14 +159,14 @@ export default function MemberUserListPage() {
       header: "操作",
       headerClassName: "text-right",
       className: "text-right",
-      cell: (user) => <RowActions primary={[{ label: "详情", onClick: () => setSelected(user) }, ...(canUpdate ? [{ label: "编辑", onClick: () => { setActionError(null); setEditing({ id: user.id, mobile: user.mobile ?? "", nickname: user.nickname ?? "", avatar: user.avatar ?? "", status: user.status ?? 1, levelId: user.levelId ? String(user.levelId) : "", groupId: user.groupId ? String(user.groupId) : "" }); } }] : [])]} more={[...(canUpdate ? [{ label: "调整积分", onClick: () => { setActionError(null); setPointDelta(0); setPointUser(user); } }] : []), ...(canResetPassword ? [{ label: "重设密码", onClick: () => { setActionError(null); setPassword(""); setPasswordAgain(""); setPasswordUser(user); } }] : [])]} />,
+      cell: (user) => <RowActions primary={[{ label: "详情", href: `/member/user/${user.id}` }, ...(canUpdate ? [{ label: "编辑", onClick: () => { setActionError(null); setEditing({ id: user.id, mobile: user.mobile ?? "", nickname: user.nickname ?? "", avatar: user.avatar ?? "", status: user.status ?? 1, levelId: user.levelId ? String(user.levelId) : "", groupId: user.groupId ? String(user.groupId) : "" }); } }] : [])]} more={[{ label: "快速查看", onClick: () => setSelected(user) }, ...(canUpdate ? [{ label: "调整积分", onClick: () => { setActionError(null); setPointDelta(0); setPointUser(user); } }] : []), ...(canResetPassword ? [{ label: "重设密码", onClick: () => { setActionError(null); setPassword(""); setPasswordAgain(""); setPasswordUser(user); } }] : [])]} />,
     },
   ];
 
   function submitFilters(event: React.FormEvent) {
     event.preventDefault();
     setPage(1);
-    setFilters({ uid: draft.uid.trim(), username: draft.username.trim(), nickname: draft.nickname.trim(), mobile: draft.mobile.trim(), status: draft.status, includeRobot: draft.includeRobot });
+    setFilters({ ...draft, uid: draft.uid.trim(), username: draft.username.trim(), nickname: draft.nickname.trim(), mobile: draft.mobile.trim() });
   }
 
   return (
@@ -177,8 +179,11 @@ export default function MemberUserListPage() {
           <Field label="会员昵称"><Input value={draft.nickname} onChange={(event) => setDraft({ ...draft, nickname: event.target.value })} placeholder="输入昵称" /></Field>
           <Field label="手机号"><Input value={draft.mobile} onChange={(event) => setDraft({ ...draft, mobile: event.target.value })} placeholder="输入手机号" /></Field>
           <Field label="状态"><Select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })}><option value="">全部状态</option><option value="1">启用</option><option value="0">停用</option></Select></Field>
+          <Field label="会员等级"><Select value={draft.levelId} onChange={(event) => setDraft({ ...draft, levelId: event.target.value })}><option value="">全部等级</option>{(levels.data ?? []).map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</Select></Field>
+          <Field label="会员分组"><Select value={draft.groupId} onChange={(event) => setDraft({ ...draft, groupId: event.target.value })}><option value="">全部分组</option>{(groups.data ?? []).map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</Select></Field>
           <label className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-xs font-semibold text-[var(--muted-foreground)]"><input type="checkbox" checked={draft.includeRobot} onChange={(event) => setDraft({ ...draft, includeRobot: event.target.checked })} />包含机器人</label>
-          <div className="flex gap-2"><Button type="button" variant="ghost" onClick={() => { const next = { uid: "", username: "", nickname: "", mobile: "", status: "", includeRobot: false }; setDraft(next); setFilters(next); setPage(1); }}>重置</Button><Button type="submit">查询</Button></div>
+          <label className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 text-xs font-semibold text-[var(--muted-foreground)]"><input type="checkbox" checked={draft.includeGuest} onChange={(event) => setDraft({ ...draft, includeGuest: event.target.checked })} />包含游客</label>
+          <div className="flex gap-2"><Button type="button" variant="ghost" onClick={() => { const next = { uid: "", username: "", nickname: "", mobile: "", status: "", levelId: "", groupId: "", includeRobot: false, includeGuest: false }; setDraft(next); setFilters(next); setPage(1); }}>重置</Button><Button type="submit">查询</Button></div>
         </div>
       </FilterPanel>
       <section className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)] shadow-[0_12px_34px_rgba(30,52,44,0.05)]">

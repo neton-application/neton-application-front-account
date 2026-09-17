@@ -77,7 +77,7 @@ export default function MemberUserDetailPage() {
   const canLevel = usePermission("member:level:query");
   const canAddress = usePermission("member:address:query");
   const canWallet = usePermission("pay:wallet:query");
-  const canWalletTx = usePermission("pay:wallet-transaction:page");
+  const canWalletTx = usePermission("pay:wallet-transaction:query");
   const canWalletUpdate = usePermission("pay:wallet:update");
 
   // 参数取自**本实例**的路由，绝不读 window.location：保活后内存里同时活着多个

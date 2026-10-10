@@ -19,7 +19,8 @@ import {
   type DataColumn,
 } from "@neton/application-front-kit";
 
-interface MemberUser {
+/** 账号资料。等级 / 分组 / 积分 / 成长值属于会员档案，见 [MemberProfile]。 */
+interface AccountUser {
   id: number;
   identityProvider?: string | null;
   username?: string | null;
@@ -33,12 +34,6 @@ interface MemberUser {
   isRobot?: number | null;
   isGuest?: number | null;
   status?: number | null;
-  levelId?: number | null;
-  levelName?: string | null;
-  experience?: number | null;
-  point?: number | null;
-  groupId?: number | null;
-  groupName?: string | null;
   registerIp?: string | null;
   registerRegion?: string | null;
   loginIp?: string | null;
@@ -49,6 +44,7 @@ interface MemberUser {
 }
 
 interface SimpleOption { id: number; name?: string | null; }
+interface MemberProfile { userId: number; levelId?: number | null; levelName?: string | null; experience: number; point: number; groupId?: number | null; groupName?: string | null }
 interface Wallet { id: number; userId: number; balance: number; freezePrice: number; totalRecharge: number; totalExpense: number; accountFrozen?: boolean }
 interface PointRecord { id: number; userId: number; bizType: number; bizId?: string | null; title: string; point: number; totalPoint: number; description?: string | null; createdAt?: number | null }
 interface SignInRecord { id: number; userId: number; nickname?: string | null; day: number; point: number; experience: number; cashAmount: number; createdAt?: number | null }
@@ -62,16 +58,21 @@ const money = (value: number) => "¥" + (value / 100).toLocaleString("zh-CN", { 
 const GENDER: Record<number, string> = { 0: "未知", 1: "男", 2: "女" };
 
 /**
- * 会员详情独立页（`/member/user/:id`）。
+ * 账号详情独立页（`/account/user/:id`）。
  *
- * 列表页的抽屉只能塞下只读快照；一个会员挂着积分、签到、成长值、等级变更、
+ * 列表页的抽屉只能塞下只读快照；一个账号挂着积分、签到、成长值、等级变更、
  * 钱包流水和收货地址六条明细，外加五个写操作，抽屉里放不下也没法分页，所以
  * 走 standalone 页面 —— 和 privchat 用户详情同一套结构。
+ *
+ * 资料来自 account；会员档案（等级、分组、积分、成长值）和各条明细来自 member / pay，
+ * 全部按权限点出现 —— 没装 member 或没有对应权限时，这些区块自然隐藏。
  */
-export default function MemberUserDetailPage() {
+export default function AccountUserDetailPage() {
   const client = useQueryClient();
-  const canUpdate = usePermission("member:user:update");
-  const canResetPassword = usePermission("member:user:update-password");
+  const canUpdate = usePermission("account:user:update");
+  const canResetPassword = usePermission("account:user:update-password");
+  const canProfile = usePermission("member:profile:query");
+  const canProfileUpdate = usePermission("member:profile:update");
   const canPoint = usePermission("member:point:query");
   const canSignIn = usePermission("member:signin:query");
   const canLevel = usePermission("member:level:query");
@@ -89,7 +90,7 @@ export default function MemberUserDetailPage() {
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(20);
   const [actionError, setActionError] = React.useState<string | null>(null);
-  const [editing, setEditing] = React.useState<{ mobile: string; nickname: string; avatar: string; status: number; levelId: string; groupId: string } | null>(null);
+  const [editing, setEditing] = React.useState<{ mobile: string; nickname: string; avatar: string; status: number; groupId: string } | null>(null);
   const [pointDelta, setPointDelta] = React.useState(0);
   const [pointOpen, setPointOpen] = React.useState(false);
   const [levelOpen, setLevelOpen] = React.useState(false);
@@ -101,9 +102,10 @@ export default function MemberUserDetailPage() {
 
   React.useEffect(() => setPage(1), [tab]);
 
-  const user = useQuery({ queryKey: ["member-user-detail", uid], queryFn: () => apiFetch<MemberUser>(`/admin/member/user/get/${uid}`), enabled: uid > 0 });
-  const levels = useQuery({ queryKey: ["member", "levels", "simple"], queryFn: () => apiFetch<SimpleOption[]>("/admin/member/level/list-all-simple") });
-  const groups = useQuery({ queryKey: ["member", "groups", "simple"], queryFn: () => apiFetch<SimpleOption[]>("/admin/member/group/list-all-simple") });
+  const user = useQuery({ queryKey: ["account-user-detail", uid], queryFn: () => apiFetch<AccountUser>(`/admin/account/user/get/${uid}`), enabled: uid > 0 });
+  const profile = useQuery({ queryKey: ["member-user-profile", uid], queryFn: () => apiFetch<MemberProfile>(`/admin/member/user/profile/${uid}`), enabled: uid > 0 && canProfile });
+  const levels = useQuery({ queryKey: ["member", "levels", "simple"], queryFn: () => apiFetch<SimpleOption[]>("/admin/member/level/list-all-simple"), enabled: canProfileUpdate });
+  const groups = useQuery({ queryKey: ["member", "groups", "simple"], queryFn: () => apiFetch<SimpleOption[]>("/admin/member/group/list-all-simple"), enabled: canProfileUpdate });
   const wallet = useQuery({ queryKey: ["member-user-wallet", uid], queryFn: () => apiFetch<Wallet | null>(`/admin/pay/wallet/get-by-user-id?userId=${uid}`), enabled: uid > 0 && canWallet });
 
   const points = useQuery({ queryKey: ["member-user-points", uid, page, pageSize], queryFn: () => apiFetch<PageResponse<PointRecord>>(`/admin/member/point/record/page?userId=${uid}&pageNo=${page}&pageSize=${pageSize}`), enabled: uid > 0 && tab === "point" });
@@ -115,19 +117,27 @@ export default function MemberUserDetailPage() {
   const transactions = useQuery({ queryKey: ["member-user-wallet-tx", walletId, page, pageSize], queryFn: () => apiFetch<PageResponse<Transaction>>(`/admin/pay/wallet-transaction/page-by-wallet?walletId=${walletId}&pageNo=${page}&pageSize=${pageSize}`), enabled: tab === "balance" && Boolean(walletId) && canWalletTx });
 
   async function refreshUser() {
-    await client.invalidateQueries({ queryKey: ["member-user-detail", uid] });
+    await client.invalidateQueries({ queryKey: ["account-user-detail", uid] });
+    await client.invalidateQueries({ queryKey: ["member-user-profile", uid] });
   }
 
   const saveMutation = useMutation({
-    mutationFn: (value: NonNullable<typeof editing>) => apiWrite<void>("/admin/member/user/update", "PUT", {
-      id: uid,
-      mobile: value.mobile.trim() ? value.mobile.trim().replace(/^\+86/, "") : null,
-      nickname: value.nickname.trim(),
-      avatar: value.avatar.trim() || null,
-      status: value.status,
-      levelId: value.levelId ? Number(value.levelId) : null,
-      groupId: value.groupId ? Number(value.groupId) : null,
-    }),
+    mutationFn: async (value: NonNullable<typeof editing>) => {
+      await apiWrite<void>("/admin/account/user/update", "PUT", {
+        id: uid,
+        mobile: value.mobile.trim() ? value.mobile.trim().replace(/^\+86/, "") : null,
+        nickname: value.nickname.trim(),
+        avatar: value.avatar.trim() || null,
+        status: value.status,
+      });
+      // 分组属于会员档案，只在确实改了时才写；等级有单独的「修改等级」入口（会留变更记录）。
+      if (canProfileUpdate) {
+        const groupId = value.groupId ? Number(value.groupId) : null;
+        if (groupId !== (profile.data?.groupId ?? null)) {
+          await apiWrite<void>("/admin/member/user/update-group", "PUT", { id: uid, groupId });
+        }
+      }
+    },
     onSuccess: async () => { setEditing(null); await refreshUser(); },
     onError: (error: Error) => setActionError(error.message),
   });
@@ -155,7 +165,7 @@ export default function MemberUserDetailPage() {
 
   /** 明文只用于这一次请求：成功或关窗都清空，不留在组件状态里。 */
   const passwordMutation = useMutation({
-    mutationFn: (value: string) => apiWrite<void>("/admin/member/user/update-password", "PUT", { id: uid, password: value }),
+    mutationFn: (value: string) => apiWrite<void>("/admin/account/user/update-password", "PUT", { id: uid, password: value }),
     onSuccess: () => closePassword(),
     onError: (error: Error) => setActionError(error.message),
   });
@@ -179,11 +189,12 @@ export default function MemberUserDetailPage() {
   }
 
   const current = user.data;
-  const title = current?.nickname || current?.username || `会员 ${uid || ""}`;
-  // 页签标题：加载出来后换成真名；没加载出来时沿用注册表默认标题「会员详情 · 46」。
-  // 标题必须带业务域：同一个人的「会员资料」和「IM 用户资料」是两个页签，
+  const growth = canProfile ? profile.data : undefined;
+  const title = current?.nickname || current?.username || `账号 ${uid || ""}`;
+  // 页签标题：加载出来后换成真名；没加载出来时沿用注册表默认标题「账号详情 · 46」。
+  // 标题必须带业务域：同一个人的「账号资料」和「IM 用户资料」是两个页签，
   // 只写 `名字 · id` 时两者会长得一模一样，分不出点开的是哪一个。
-  useTabTitle(current ? `${title} · 会员 ${uid}` : null);
+  useTabTitle(current ? `${title} · 账号 ${uid}` : null);
   // 有编辑中的抽屉 = 有未保存内容：页签打脏点，关闭要二次确认。
   useWorkspaceDirty(Boolean(editing) || Boolean(walletForm) || passwordOpen || levelOpen || pointOpen);
 
@@ -253,9 +264,8 @@ export default function MemberUserDetailPage() {
     ["性别", GENDER[current.gender ?? 0] || "未知"],
     ["生日", current.birthday || "-"],
     ["个性签名", current.bio || "-"],
-    ["等级", current.levelName || "默认等级"],
-    ["分组", current.groupName || "未分组"],
-    ["账号类型", current.isRobot === 1 ? "陪玩机器人" : current.isGuest === 1 ? "游客" : "普通会员"],
+    ...(growth ? [["等级", growth.levelName || "默认等级"], ["分组", growth.groupName || "未分组"]] as Array<[string, React.ReactNode]> : []),
+    ["账号类型", current.isRobot === 1 ? "陪玩机器人" : current.isGuest === 1 ? "游客" : "普通账号"],
     ["注册 IP", current.registerIp || "-"],
     ["注册地区", current.registerRegion || "-"],
     ["登录 IP", current.loginIp || "-"],
@@ -269,15 +279,15 @@ export default function MemberUserDetailPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        eyebrow="MEMBER PROFILE"
+        eyebrow="ACCOUNT PROFILE"
         title={title}
-        description="独立会员详情页，集中查看资料、资产与全部账户明细，并执行管理操作。"
+        description="独立账号详情页，集中查看资料、资产与全部账户明细，并执行管理操作。"
         actions={
           <>
-            <WorkspaceLink to="/member/user" className="inline-flex h-10 items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold">返回列表</WorkspaceLink>
-            {canUpdate && current && <Button variant="outline" onClick={() => { setActionError(null); setEditing({ mobile: current.mobile ?? "", nickname: current.nickname ?? "", avatar: current.avatar ?? "", status: current.status ?? 1, levelId: current.levelId ? String(current.levelId) : "", groupId: current.groupId ? String(current.groupId) : "" }); }}>编辑资料</Button>}
-            {canUpdate && current && <Button variant="outline" onClick={() => { setActionError(null); setLevelId(current.levelId ? String(current.levelId) : ""); setLevelOpen(true); }}>修改等级</Button>}
-            {canUpdate && <Button variant="outline" onClick={() => { setActionError(null); setPointDelta(0); setPointOpen(true); }}>调整积分</Button>}
+            <WorkspaceLink to="/account/user" className="inline-flex h-10 items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold">返回列表</WorkspaceLink>
+            {canUpdate && current && <Button variant="outline" onClick={() => { setActionError(null); setEditing({ mobile: current.mobile ?? "", nickname: current.nickname ?? "", avatar: current.avatar ?? "", status: current.status ?? 1, groupId: profile.data?.groupId ? String(profile.data.groupId) : "" }); }}>编辑资料</Button>}
+            {canProfileUpdate && current && <Button variant="outline" onClick={() => { setActionError(null); setLevelId(profile.data?.levelId ? String(profile.data.levelId) : ""); setLevelOpen(true); }}>修改等级</Button>}
+            {canProfileUpdate && <Button variant="outline" onClick={() => { setActionError(null); setPointDelta(0); setPointOpen(true); }}>调整积分</Button>}
             {canWalletUpdate && <Button variant="outline" onClick={() => { setActionError(null); setWalletForm({ mode: "recharge", amount: 0, remark: "" }); }}>调整余额</Button>}
             {canResetPassword && <Button variant="outline" onClick={() => { setActionError(null); setPassword(""); setPasswordAgain(""); setPasswordOpen(true); }}>重设密码</Button>}
           </>
@@ -295,14 +305,14 @@ export default function MemberUserDetailPage() {
                 : <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--primary-soft)] text-xl font-bold text-[var(--primary)]">{title.slice(0, 1).toUpperCase()}</span>}
               <div>
                 <h2 className="text-lg font-bold">{title}</h2>
-                <p className="text-xs text-[var(--muted-foreground)]">Member #{current.id} · {current.identityProvider || "builtin"} · {current.mobile || "未绑定手机"}</p>
+                <p className="text-xs text-[var(--muted-foreground)]">Account #{current.id} · {current.identityProvider || "builtin"} · {current.mobile || "未绑定手机"}</p>
               </div>
             </div>
             <StatusBadge active={current.status !== 0}>{current.status === 0 ? "停用" : "启用"}</StatusBadge>
           </div>
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--border)] sm:grid-cols-4">
-            <Metric label="积分" value={String(current.point ?? 0)} />
-            <Metric label="成长值" value={String(current.experience ?? 0)} />
+            <Metric label="积分" value={growth ? String(growth.point) : "-"} />
+            <Metric label="成长值" value={growth ? String(growth.experience) : "-"} />
             <Metric label="余额" value={canWallet ? money(wallet.data?.balance ?? 0) : "无权限"} />
             <Metric label="冻结" value={canWallet ? money(wallet.data?.freezePrice ?? 0) : "-"} />
           </div>
@@ -332,18 +342,17 @@ export default function MemberUserDetailPage() {
       {tab === "level" && <TableCard><DataTable columns={levelColumns} rows={levelRecords.data?.list ?? []} rowKey={(row) => row.id} loading={levelRecords.isPending} error={levelRecords.error?.message} /><Pagination page={page} pageSize={pageSize} total={levelRecords.data?.total ?? 0} loading={levelRecords.isFetching} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} /></TableCard>}
       {tab === "balance" && (walletId
         ? <TableCard><DataTable columns={transactionColumns} rows={transactions.data?.list ?? []} rowKey={(row) => row.id} loading={transactions.isPending} error={transactions.error?.message} minWidth={860} /><Pagination page={page} pageSize={pageSize} total={transactions.data?.total ?? 0} loading={transactions.isFetching} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} /></TableCard>
-        : <EmptyCard text={wallet.isPending ? "正在加载钱包…" : "该会员还没有开通钱包，产生第一笔资金流水后自动创建。"} />)}
+        : <EmptyCard text={wallet.isPending ? "正在加载钱包…" : "该账号还没有开通钱包，产生第一笔资金流水后自动创建。"} />)}
       {tab === "address" && <TableCard><DataTable columns={addressColumns} rows={addresses.data ?? []} rowKey={(row) => row.id} loading={addresses.isPending} error={addresses.error?.message} /></TableCard>}
 
-      <Drawer open={Boolean(editing)} onClose={() => setEditing(null)} title="编辑会员" footer={<><Button variant="ghost" onClick={() => setEditing(null)}>取消</Button><Button type="submit" form="member-detail-edit-form" disabled={saveMutation.isPending}>{saveMutation.isPending ? "保存中…" : "保存会员"}</Button></>}>
-        {editing && <form id="member-detail-edit-form" className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (!editing.nickname.trim()) return setActionError("会员昵称不能为空"); setActionError(null); saveMutation.mutate(editing); }}>
+      <Drawer open={Boolean(editing)} onClose={() => setEditing(null)} title="编辑账号" footer={<><Button variant="ghost" onClick={() => setEditing(null)}>取消</Button><Button type="submit" form="account-detail-edit-form" disabled={saveMutation.isPending}>{saveMutation.isPending ? "保存中…" : "保存账号"}</Button></>}>
+        {editing && <form id="account-detail-edit-form" className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (!editing.nickname.trim()) return setActionError("昵称不能为空"); setActionError(null); saveMutation.mutate(editing); }}>
           {actionError && <ErrorLine text={actionError} />}
-          <Field label="会员昵称"><Input value={editing.nickname} onChange={(event) => setEditing({ ...editing, nickname: event.target.value })} /></Field>
+          <Field label="昵称"><Input value={editing.nickname} onChange={(event) => setEditing({ ...editing, nickname: event.target.value })} /></Field>
           <Field label="手机号"><Input value={editing.mobile} onChange={(event) => setEditing({ ...editing, mobile: event.target.value })} placeholder="中国大陆手机号" /></Field>
           <Field label="头像 URL"><Input value={editing.avatar} onChange={(event) => setEditing({ ...editing, avatar: event.target.value })} /></Field>
           <Field label="状态"><Select value={editing.status} onChange={(event) => setEditing({ ...editing, status: Number(event.target.value) })}><option value="1">启用</option><option value="0">停用</option></Select></Field>
-          <Field label="会员等级"><Select value={editing.levelId} onChange={(event) => setEditing({ ...editing, levelId: event.target.value })}><option value="">默认等级</option>{(levels.data ?? []).map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</Select></Field>
-          <Field label="会员分组"><Select value={editing.groupId} onChange={(event) => setEditing({ ...editing, groupId: event.target.value })}><option value="">未分组</option>{(groups.data ?? []).map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</Select></Field>
+          {canProfileUpdate && <Field label="会员分组"><Select value={editing.groupId} onChange={(event) => setEditing({ ...editing, groupId: event.target.value })}><option value="">未分组</option>{(groups.data ?? []).map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</Select></Field>}
         </form>}
       </Drawer>
 
@@ -359,8 +368,8 @@ export default function MemberUserDetailPage() {
           {actionError && <ErrorLine text={actionError} />}
           <div className="rounded-2xl bg-[var(--hero)] p-5 text-white">
             <div className="text-xs text-white/45">当前积分</div>
-            <div className="mt-2 text-2xl font-semibold">{current?.point ?? 0}</div>
-            <div className="mt-4 text-xs text-[var(--primary)]">调整后 {(current?.point ?? 0) + pointDelta}</div>
+            <div className="mt-2 text-2xl font-semibold">{growth?.point ?? 0}</div>
+            <div className="mt-4 text-xs text-[var(--primary)]">调整后 {(growth?.point ?? 0) + pointDelta}</div>
           </div>
           <Field label="变更值（增加填正数，扣减填负数）"><Input type="number" value={pointDelta} onChange={(event) => setPointDelta(Number(event.target.value))} /></Field>
         </div>

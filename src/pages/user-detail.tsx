@@ -3,7 +3,9 @@
 import * as React from "react";
 import { apiFetch, apiWrite } from "@neton/application-front-runtime/client";
 import { useMutation, usePermission, useQuery, useQueryClient } from "@neton/application-front-runtime/client-context";
-import { formatDateTime, type PageResponse } from "@neton/application-front-runtime/types";
+import { formatDateTime, formatMoney, type PageResponse } from "@neton/application-front-runtime/types";
+import { useT, type Translate } from "@neton/application-front-runtime/i18n";
+import { useDescribeError } from "@neton/application-front-runtime/errors";
 import { WorkspaceLink, useTabTitle, useWorkspaceDirty, useWorkspaceRoute } from "@neton/application-front-workspace";
 import {
   Button,
@@ -54,8 +56,9 @@ interface Transaction { id: number; walletId: number; bizType: number; bizId: nu
 
 type Tab = "profile" | "point" | "signin" | "experience" | "level" | "balance" | "address";
 
-const money = (value: number) => "¥" + (value / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const GENDER: Record<number, string> = { 0: "未知", 1: "男", 2: "女" };
+/** 钱包金额是「分」；钱包记录不带币种，走部署默认币种。 */
+const money = (value: number) => formatMoney(value);
+const genderLabel = (t: Translate, gender: number) => (gender === 1 ? t("detail.gender.male") : gender === 2 ? t("detail.gender.female") : t("detail.gender.unknown"));
 
 /**
  * 账号详情独立页（`/account/user/:id`）。
@@ -68,6 +71,8 @@ const GENDER: Record<number, string> = { 0: "未知", 1: "男", 2: "女" };
  * 全部按权限点出现 —— 没装 member 或没有对应权限时，这些区块自然隐藏。
  */
 export default function AccountUserDetailPage() {
+  const t = useT("account");
+  const describeError = useDescribeError();
   const client = useQueryClient();
   const canUpdate = usePermission("account:user:update");
   const canResetPassword = usePermission("account:user:update-password");
@@ -139,7 +144,7 @@ export default function AccountUserDetailPage() {
       }
     },
     onSuccess: async () => { setEditing(null); await refreshUser(); },
-    onError: (error: Error) => setActionError(error.message),
+    onError: (error: Error) => setActionError(describeError(error)),
   });
 
   const levelMutation = useMutation({
@@ -149,7 +154,7 @@ export default function AccountUserDetailPage() {
       await refreshUser();
       await client.invalidateQueries({ queryKey: ["member-user-level-records", uid] });
     },
-    onError: (error: Error) => setActionError(error.message),
+    onError: (error: Error) => setActionError(describeError(error)),
   });
 
   const pointMutation = useMutation({
@@ -160,14 +165,14 @@ export default function AccountUserDetailPage() {
       await refreshUser();
       await client.invalidateQueries({ queryKey: ["member-user-points", uid] });
     },
-    onError: (error: Error) => setActionError(error.message),
+    onError: (error: Error) => setActionError(describeError(error)),
   });
 
   /** 明文只用于这一次请求：成功或关窗都清空，不留在组件状态里。 */
   const passwordMutation = useMutation({
     mutationFn: (value: string) => apiWrite<void>("/admin/account/user/update-password", "PUT", { id: uid, password: value }),
     onSuccess: () => closePassword(),
-    onError: (error: Error) => setActionError(error.message),
+    onError: (error: Error) => setActionError(describeError(error)),
   });
 
   const walletMutation = useMutation({
@@ -179,7 +184,7 @@ export default function AccountUserDetailPage() {
       await client.invalidateQueries({ queryKey: ["member-user-wallet", uid] });
       await client.invalidateQueries({ queryKey: ["member-user-wallet-tx"] });
     },
-    onError: (error: Error) => setActionError(error.message),
+    onError: (error: Error) => setActionError(describeError(error)),
   });
 
   function closePassword() {
@@ -190,111 +195,111 @@ export default function AccountUserDetailPage() {
 
   const current = user.data;
   const growth = canProfile ? profile.data : undefined;
-  const title = current?.nickname || current?.username || `账号 ${uid || ""}`;
+  const title = current?.nickname || current?.username || t("detail.fallbackTitle", { id: uid || "" });
   // 页签标题：加载出来后换成真名；没加载出来时沿用注册表默认标题「账号详情 · 46」。
   // 标题必须带业务域：同一个人的「账号资料」和「IM 用户资料」是两个页签，
   // 只写 `名字 · id` 时两者会长得一模一样，分不出点开的是哪一个。
-  useTabTitle(current ? `${title} · 账号 ${uid}` : null);
+  useTabTitle(current ? t("detail.tabTitle", { title, id: uid }) : null);
   // 有编辑中的抽屉 = 有未保存内容：页签打脏点，关闭要二次确认。
   useWorkspaceDirty(Boolean(editing) || Boolean(walletForm) || passwordOpen || levelOpen || pointOpen);
 
   const pointColumns: DataColumn<PointRecord>[] = [
-    { key: "id", header: "编号", cell: (row) => <code className="text-xs">{row.id}</code> },
-    { key: "title", header: "标题", cell: (row) => <div><strong>{row.title}</strong>{row.description && <div className="text-xs text-[var(--muted-foreground)]">{row.description}</div>}</div> },
-    { key: "bizType", header: "业务类型", cell: (row) => row.bizType },
-    { key: "point", header: "变动", cell: (row) => <span className={`font-mono text-xs font-semibold ${row.point < 0 ? "text-red-600" : "text-[var(--primary)]"}`}>{row.point > 0 ? `+${row.point}` : row.point}</span> },
-    { key: "totalPoint", header: "变动后", cell: (row) => <span className="font-mono text-xs">{row.totalPoint}</span> },
-    { key: "createdAt", header: "时间", cell: (row) => formatDateTime(row.createdAt) },
+    { key: "id", header: t("detail.field.id"), cell: (row) => <code className="text-xs">{row.id}</code> },
+    { key: "title", header: t("detail.field.title"), cell: (row) => <div><strong>{row.title}</strong>{row.description && <div className="text-xs text-[var(--muted-foreground)]">{row.description}</div>}</div> },
+    { key: "bizType", header: t("detail.field.bizType"), cell: (row) => row.bizType },
+    { key: "point", header: t("detail.field.change"), cell: (row) => <span className={`font-mono text-xs font-semibold ${row.point < 0 ? "text-red-600" : "text-[var(--primary)]"}`}>{row.point > 0 ? `+${row.point}` : row.point}</span> },
+    { key: "totalPoint", header: t("detail.field.after"), cell: (row) => <span className="font-mono text-xs">{row.totalPoint}</span> },
+    { key: "createdAt", header: t("detail.field.time"), cell: (row) => formatDateTime(row.createdAt) },
   ];
 
   const signInColumns: DataColumn<SignInRecord>[] = [
-    { key: "id", header: "编号", cell: (row) => <code className="text-xs">{row.id}</code> },
-    { key: "day", header: "连续天数", cell: (row) => `第 ${row.day} 天` },
-    { key: "point", header: "积分", cell: (row) => row.point },
-    { key: "experience", header: "经验", cell: (row) => row.experience },
-    { key: "cash", header: "现金奖励", cell: (row) => (row.cashAmount ? money(row.cashAmount) : "-") },
-    { key: "createdAt", header: "时间", cell: (row) => formatDateTime(row.createdAt) },
+    { key: "id", header: t("detail.field.id"), cell: (row) => <code className="text-xs">{row.id}</code> },
+    { key: "day", header: t("detail.signin.day"), cell: (row) => t("detail.signin.dayValue", { day: row.day }) },
+    { key: "point", header: t("user.field.point"), cell: (row) => row.point },
+    { key: "experience", header: t("detail.signin.experience"), cell: (row) => row.experience },
+    { key: "cash", header: t("detail.signin.cash"), cell: (row) => (row.cashAmount ? money(row.cashAmount) : "-") },
+    { key: "createdAt", header: t("detail.field.time"), cell: (row) => formatDateTime(row.createdAt) },
   ];
 
   const experienceColumns: DataColumn<PointRecord>[] = [
-    { key: "id", header: "编号", cell: (row) => <code className="text-xs">{row.id}</code> },
-    { key: "title", header: "标题", cell: (row) => row.title },
-    { key: "point", header: "变动成长值", cell: (row) => <span className="font-mono text-xs font-semibold">{row.point > 0 ? `+${row.point}` : row.point}</span> },
-    { key: "totalPoint", header: "变动后", cell: (row) => <span className="font-mono text-xs">{row.totalPoint}</span> },
-    { key: "createdAt", header: "时间", cell: (row) => formatDateTime(row.createdAt) },
+    { key: "id", header: t("detail.field.id"), cell: (row) => <code className="text-xs">{row.id}</code> },
+    { key: "title", header: t("detail.field.title"), cell: (row) => row.title },
+    { key: "point", header: t("detail.experience.change"), cell: (row) => <span className="font-mono text-xs font-semibold">{row.point > 0 ? `+${row.point}` : row.point}</span> },
+    { key: "totalPoint", header: t("detail.field.after"), cell: (row) => <span className="font-mono text-xs">{row.totalPoint}</span> },
+    { key: "createdAt", header: t("detail.field.time"), cell: (row) => formatDateTime(row.createdAt) },
   ];
 
   const levelColumns: DataColumn<LevelRecord>[] = [
-    { key: "id", header: "编号", cell: (row) => <code className="text-xs">{row.id}</code> },
-    { key: "level", header: "等级", cell: (row) => <div><strong>Lv.{row.level}</strong><div className="text-xs text-[var(--muted-foreground)]">等级 ID {row.levelId}</div></div> },
-    { key: "reason", header: "原因", cell: (row) => row.reason || "-" },
-    { key: "description", header: "说明", cell: (row) => row.description || "-" },
-    { key: "createdAt", header: "时间", cell: (row) => formatDateTime(row.createdAt) },
+    { key: "id", header: t("detail.field.id"), cell: (row) => <code className="text-xs">{row.id}</code> },
+    { key: "level", header: t("user.field.level"), cell: (row) => <div><strong>Lv.{row.level}</strong><div className="text-xs text-[var(--muted-foreground)]">{t("detail.level.levelId", { id: row.levelId })}</div></div> },
+    { key: "reason", header: t("detail.level.reason"), cell: (row) => row.reason || "-" },
+    { key: "description", header: t("detail.level.description"), cell: (row) => row.description || "-" },
+    { key: "createdAt", header: t("detail.field.time"), cell: (row) => formatDateTime(row.createdAt) },
   ];
 
   const addressColumns: DataColumn<AddressRow>[] = [
-    { key: "name", header: "收件人", cell: (row) => <div><strong>{row.name}</strong><div className="text-xs text-[var(--muted-foreground)]">{row.mobile}</div></div> },
-    { key: "detail", header: "地址", cell: (row) => <span className="break-all">{row.areaCode ? `${row.areaCode} ` : ""}{row.detailAddress}</span> },
-    { key: "default", header: "默认", cell: (row) => <StatusBadge active={row.defaultStatus === 1}>{row.defaultStatus === 1 ? "默认地址" : "普通"}</StatusBadge> },
+    { key: "name", header: t("detail.address.receiver"), cell: (row) => <div><strong>{row.name}</strong><div className="text-xs text-[var(--muted-foreground)]">{row.mobile}</div></div> },
+    { key: "detail", header: t("detail.address.address"), cell: (row) => <span className="break-all">{row.areaCode ? `${row.areaCode} ` : ""}{row.detailAddress}</span> },
+    { key: "default", header: t("detail.address.default"), cell: (row) => <StatusBadge active={row.defaultStatus === 1}>{row.defaultStatus === 1 ? t("detail.address.isDefault") : t("detail.address.normal")}</StatusBadge> },
   ];
 
   const transactionColumns: DataColumn<Transaction>[] = [
-    { key: "id", header: "编号", cell: (row) => <code className="text-xs">{row.id}</code> },
-    { key: "title", header: "标题", cell: (row) => <div><strong>{row.title}</strong><div className="text-xs text-[var(--muted-foreground)]">业务 {row.bizType} · {row.bizId}</div></div> },
-    { key: "price", header: "金额", cell: (row) => <span className={`font-mono text-xs font-semibold ${row.price < 0 ? "text-red-600" : "text-[var(--primary)]"}`}>{row.price > 0 ? `+${money(row.price)}` : money(row.price)}</span> },
-    { key: "balance", header: "变动后余额", cell: (row) => <span className="font-mono text-xs">{money(row.balance)}</span> },
-    { key: "createdAt", header: "时间", cell: (row) => formatDateTime(row.createdAt) },
+    { key: "id", header: t("detail.field.id"), cell: (row) => <code className="text-xs">{row.id}</code> },
+    { key: "title", header: t("detail.field.title"), cell: (row) => <div><strong>{row.title}</strong><div className="text-xs text-[var(--muted-foreground)]">{t("detail.tx.biz", { bizType: row.bizType, bizId: row.bizId })}</div></div> },
+    { key: "price", header: t("detail.tx.amount"), cell: (row) => <span className={`font-mono text-xs font-semibold ${row.price < 0 ? "text-red-600" : "text-[var(--primary)]"}`}>{row.price > 0 ? `+${money(row.price)}` : money(row.price)}</span> },
+    { key: "balance", header: t("detail.tx.balanceAfter"), cell: (row) => <span className="font-mono text-xs">{money(row.balance)}</span> },
+    { key: "createdAt", header: t("detail.field.time"), cell: (row) => formatDateTime(row.createdAt) },
   ];
 
   const tabs: Array<[Tab, string, boolean]> = [
-    ["profile", "基本资料", true],
-    ["point", "积分记录", canPoint],
-    ["signin", "签到记录", canSignIn],
-    ["experience", "成长值", canLevel],
-    ["level", "等级变更", canLevel],
-    ["balance", "余额流水", canWallet && canWalletTx],
-    ["address", "收货地址", canAddress],
+    ["profile", t("detail.tab.profile"), true],
+    ["point", t("detail.tab.point"), canPoint],
+    ["signin", t("detail.tab.signin"), canSignIn],
+    ["experience", t("detail.tab.experience"), canLevel],
+    ["level", t("detail.tab.level"), canLevel],
+    ["balance", t("detail.tab.balance"), canWallet && canWalletTx],
+    ["address", t("detail.tab.address"), canAddress],
   ];
 
   const profileFields: Array<[string, React.ReactNode]> = current ? [
-    ["用户名", current.username || "未设置"],
-    ["昵称", current.nickname || "未设置"],
-    ["手机号", current.mobile || "未绑定"],
-    ["身份来源", current.identityProvider || "builtin"],
-    ["性别", GENDER[current.gender ?? 0] || "未知"],
-    ["生日", current.birthday || "-"],
-    ["个性签名", current.bio || "-"],
-    ...(growth ? [["等级", growth.levelName || "默认等级"], ["分组", growth.groupName || "未分组"]] as Array<[string, React.ReactNode]> : []),
-    ["账号类型", current.isRobot === 1 ? "陪玩机器人" : current.isGuest === 1 ? "游客" : "普通账号"],
-    ["注册 IP", current.registerIp || "-"],
-    ["注册地区", current.registerRegion || "-"],
-    ["登录 IP", current.loginIp || "-"],
-    ["登录地区", current.loginRegion || "-"],
-    ["最近登录", formatDateTime(current.loginDate)],
-    ["注册时间", formatDateTime(current.createdAt)],
-    ["更新时间", formatDateTime(current.updatedAt)],
-    ["用户名修改于", current.usernameUpdatedAt ? formatDateTime(current.usernameUpdatedAt) : "从未修改"],
+    [t("user.field.username"), current.username || t("user.notSet")],
+    [t("user.field.nickname"), current.nickname || t("user.notSet")],
+    [t("user.field.mobile"), current.mobile || t("user.unbound")],
+    [t("user.field.identitySource"), current.identityProvider || "builtin"],
+    [t("detail.field.gender"), genderLabel(t, current.gender ?? 0)],
+    [t("detail.field.birthday"), current.birthday || "-"],
+    [t("detail.field.bio"), current.bio || "-"],
+    ...(growth ? [[t("user.field.level"), growth.levelName || t("user.defaultLevel")], [t("user.field.group"), growth.groupName || t("user.ungrouped")]] as Array<[string, React.ReactNode]> : []),
+    [t("detail.field.accountType"), current.isRobot === 1 ? t("detail.accountType.robot") : current.isGuest === 1 ? t("detail.accountType.guest") : t("detail.accountType.normal")],
+    [t("user.field.registerIp"), current.registerIp || "-"],
+    [t("detail.field.registerRegion"), current.registerRegion || "-"],
+    [t("user.field.loginIp"), current.loginIp || "-"],
+    [t("user.field.loginRegion"), current.loginRegion || "-"],
+    [t("user.field.lastLogin"), formatDateTime(current.loginDate)],
+    [t("user.field.createdAt"), formatDateTime(current.createdAt)],
+    [t("detail.field.updatedAt"), formatDateTime(current.updatedAt)],
+    [t("detail.field.usernameUpdatedAt"), current.usernameUpdatedAt ? formatDateTime(current.usernameUpdatedAt) : t("detail.usernameNeverChanged")],
   ] : [];
 
   return (
     <div className="space-y-4">
       <PageHeader
-        eyebrow="ACCOUNT PROFILE"
+        eyebrow={t("detail.eyebrow")}
         title={title}
-        description="独立账号详情页，集中查看资料、资产与全部账户明细，并执行管理操作。"
+        description={t("detail.description")}
         actions={
           <>
-            <WorkspaceLink to="/account/user" className="inline-flex h-10 items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold">返回列表</WorkspaceLink>
-            {canUpdate && current && <Button variant="outline" onClick={() => { setActionError(null); setEditing({ mobile: current.mobile ?? "", nickname: current.nickname ?? "", avatar: current.avatar ?? "", status: current.status ?? 1, groupId: profile.data?.groupId ? String(profile.data.groupId) : "" }); }}>编辑资料</Button>}
-            {canProfileUpdate && current && <Button variant="outline" onClick={() => { setActionError(null); setLevelId(profile.data?.levelId ? String(profile.data.levelId) : ""); setLevelOpen(true); }}>修改等级</Button>}
-            {canProfileUpdate && <Button variant="outline" onClick={() => { setActionError(null); setPointDelta(0); setPointOpen(true); }}>调整积分</Button>}
-            {canWalletUpdate && <Button variant="outline" onClick={() => { setActionError(null); setWalletForm({ mode: "recharge", amount: 0, remark: "" }); }}>调整余额</Button>}
-            {canResetPassword && <Button variant="outline" onClick={() => { setActionError(null); setPassword(""); setPasswordAgain(""); setPasswordOpen(true); }}>重设密码</Button>}
+            <WorkspaceLink to="/account/user" className="inline-flex h-10 items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 text-sm font-semibold">{t("detail.backToList")}</WorkspaceLink>
+            {canUpdate && current && <Button variant="outline" onClick={() => { setActionError(null); setEditing({ mobile: current.mobile ?? "", nickname: current.nickname ?? "", avatar: current.avatar ?? "", status: current.status ?? 1, groupId: profile.data?.groupId ? String(profile.data.groupId) : "" }); }}>{t("detail.action.editProfile")}</Button>}
+            {canProfileUpdate && current && <Button variant="outline" onClick={() => { setActionError(null); setLevelId(profile.data?.levelId ? String(profile.data.levelId) : ""); setLevelOpen(true); }}>{t("detail.action.changeLevel")}</Button>}
+            {canProfileUpdate && <Button variant="outline" onClick={() => { setActionError(null); setPointDelta(0); setPointOpen(true); }}>{t("user.action.adjustPoint")}</Button>}
+            {canWalletUpdate && <Button variant="outline" onClick={() => { setActionError(null); setWalletForm({ mode: "recharge", amount: 0, remark: "" }); }}>{t("detail.action.adjustBalance")}</Button>}
+            {canResetPassword && <Button variant="outline" onClick={() => { setActionError(null); setPassword(""); setPasswordAgain(""); setPasswordOpen(true); }}>{t("user.action.resetPassword")}</Button>}
           </>
         }
       />
 
-      {user.error && <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{user.error.message}</div>}
+      {user.error && <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{describeError(user.error)}</div>}
 
       {current && (
         <section className="grid gap-4 lg:grid-cols-[3fr_2fr]">
@@ -305,16 +310,16 @@ export default function AccountUserDetailPage() {
                 : <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--primary-soft)] text-xl font-bold text-[var(--primary)]">{title.slice(0, 1).toUpperCase()}</span>}
               <div>
                 <h2 className="text-lg font-bold">{title}</h2>
-                <p className="text-xs text-[var(--muted-foreground)]">Account #{current.id} · {current.identityProvider || "builtin"} · {current.mobile || "未绑定手机"}</p>
+                <p className="text-xs text-[var(--muted-foreground)]">{t("user.accountNo", { id: current.id })} · {current.identityProvider || "builtin"} · {current.mobile || t("detail.mobileUnbound")}</p>
               </div>
             </div>
-            <StatusBadge active={current.status !== 0}>{current.status === 0 ? "停用" : "启用"}</StatusBadge>
+            <StatusBadge active={current.status !== 0}>{current.status === 0 ? t("user.status.disabled") : t("user.status.enabled")}</StatusBadge>
           </div>
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--border)] sm:grid-cols-4">
-            <Metric label="积分" value={growth ? String(growth.point) : "-"} />
-            <Metric label="成长值" value={growth ? String(growth.experience) : "-"} />
-            <Metric label="余额" value={canWallet ? money(wallet.data?.balance ?? 0) : "无权限"} />
-            <Metric label="冻结" value={canWallet ? money(wallet.data?.freezePrice ?? 0) : "-"} />
+            <Metric label={t("user.field.point")} value={growth ? String(growth.point) : "-"} />
+            <Metric label={t("detail.tab.experience")} value={growth ? String(growth.experience) : "-"} />
+            <Metric label={t("detail.metric.balance")} value={canWallet ? money(wallet.data?.balance ?? 0) : t("detail.metric.noPermission")} />
+            <Metric label={t("detail.metric.frozen")} value={canWallet ? money(wallet.data?.freezePrice ?? 0) : "-"} />
           </div>
         </section>
       )}
@@ -336,68 +341,68 @@ export default function AccountUserDetailPage() {
         </section>
       )}
 
-      {tab === "point" && <TableCard><DataTable columns={pointColumns} rows={points.data?.list ?? []} rowKey={(row) => row.id} loading={points.isPending} error={points.error?.message} minWidth={860} /><Pagination page={page} pageSize={pageSize} total={points.data?.total ?? 0} loading={points.isFetching} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} /></TableCard>}
-      {tab === "signin" && <TableCard><DataTable columns={signInColumns} rows={signIns.data?.list ?? []} rowKey={(row) => row.id} loading={signIns.isPending} error={signIns.error?.message} /><Pagination page={page} pageSize={pageSize} total={signIns.data?.total ?? 0} loading={signIns.isFetching} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} /></TableCard>}
-      {tab === "experience" && <TableCard><DataTable columns={experienceColumns} rows={experiences.data?.list ?? []} rowKey={(row) => row.id} loading={experiences.isPending} error={experiences.error?.message} /><Pagination page={page} pageSize={pageSize} total={experiences.data?.total ?? 0} loading={experiences.isFetching} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} /></TableCard>}
-      {tab === "level" && <TableCard><DataTable columns={levelColumns} rows={levelRecords.data?.list ?? []} rowKey={(row) => row.id} loading={levelRecords.isPending} error={levelRecords.error?.message} /><Pagination page={page} pageSize={pageSize} total={levelRecords.data?.total ?? 0} loading={levelRecords.isFetching} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} /></TableCard>}
+      {tab === "point" && <TableCard><DataTable columns={pointColumns} rows={points.data?.list ?? []} rowKey={(row) => row.id} loading={points.isPending} error={points.error ? describeError(points.error) : null} minWidth={860} /><Pagination page={page} pageSize={pageSize} total={points.data?.total ?? 0} loading={points.isFetching} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} /></TableCard>}
+      {tab === "signin" && <TableCard><DataTable columns={signInColumns} rows={signIns.data?.list ?? []} rowKey={(row) => row.id} loading={signIns.isPending} error={signIns.error ? describeError(signIns.error) : null} /><Pagination page={page} pageSize={pageSize} total={signIns.data?.total ?? 0} loading={signIns.isFetching} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} /></TableCard>}
+      {tab === "experience" && <TableCard><DataTable columns={experienceColumns} rows={experiences.data?.list ?? []} rowKey={(row) => row.id} loading={experiences.isPending} error={experiences.error ? describeError(experiences.error) : null} /><Pagination page={page} pageSize={pageSize} total={experiences.data?.total ?? 0} loading={experiences.isFetching} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} /></TableCard>}
+      {tab === "level" && <TableCard><DataTable columns={levelColumns} rows={levelRecords.data?.list ?? []} rowKey={(row) => row.id} loading={levelRecords.isPending} error={levelRecords.error ? describeError(levelRecords.error) : null} /><Pagination page={page} pageSize={pageSize} total={levelRecords.data?.total ?? 0} loading={levelRecords.isFetching} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} /></TableCard>}
       {tab === "balance" && (walletId
-        ? <TableCard><DataTable columns={transactionColumns} rows={transactions.data?.list ?? []} rowKey={(row) => row.id} loading={transactions.isPending} error={transactions.error?.message} minWidth={860} /><Pagination page={page} pageSize={pageSize} total={transactions.data?.total ?? 0} loading={transactions.isFetching} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} /></TableCard>
-        : <EmptyCard text={wallet.isPending ? "正在加载钱包…" : "该账号还没有开通钱包，产生第一笔资金流水后自动创建。"} />)}
-      {tab === "address" && <TableCard><DataTable columns={addressColumns} rows={addresses.data ?? []} rowKey={(row) => row.id} loading={addresses.isPending} error={addresses.error?.message} /></TableCard>}
+        ? <TableCard><DataTable columns={transactionColumns} rows={transactions.data?.list ?? []} rowKey={(row) => row.id} loading={transactions.isPending} error={transactions.error ? describeError(transactions.error) : null} minWidth={860} /><Pagination page={page} pageSize={pageSize} total={transactions.data?.total ?? 0} loading={transactions.isFetching} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} /></TableCard>
+        : <EmptyCard text={wallet.isPending ? t("detail.wallet.loading") : t("detail.wallet.none")} />)}
+      {tab === "address" && <TableCard><DataTable columns={addressColumns} rows={addresses.data ?? []} rowKey={(row) => row.id} loading={addresses.isPending} error={addresses.error ? describeError(addresses.error) : null} /></TableCard>}
 
-      <Drawer open={Boolean(editing)} onClose={() => setEditing(null)} title="编辑账号" footer={<><Button variant="ghost" onClick={() => setEditing(null)}>取消</Button><Button type="submit" form="account-detail-edit-form" disabled={saveMutation.isPending}>{saveMutation.isPending ? "保存中…" : "保存账号"}</Button></>}>
-        {editing && <form id="account-detail-edit-form" className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (!editing.nickname.trim()) return setActionError("昵称不能为空"); setActionError(null); saveMutation.mutate(editing); }}>
+      <Drawer open={Boolean(editing)} onClose={() => setEditing(null)} title={t("user.edit.title")} footer={<><Button variant="ghost" onClick={() => setEditing(null)}>{t("user.cancel")}</Button><Button type="submit" form="account-detail-edit-form" disabled={saveMutation.isPending}>{saveMutation.isPending ? t("user.edit.saving") : t("user.edit.save")}</Button></>}>
+        {editing && <form id="account-detail-edit-form" className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (!editing.nickname.trim()) return setActionError(t("user.edit.nicknameRequired")); setActionError(null); saveMutation.mutate(editing); }}>
           {actionError && <ErrorLine text={actionError} />}
-          <Field label="昵称"><Input value={editing.nickname} onChange={(event) => setEditing({ ...editing, nickname: event.target.value })} /></Field>
-          <Field label="手机号"><Input value={editing.mobile} onChange={(event) => setEditing({ ...editing, mobile: event.target.value })} placeholder="中国大陆手机号" /></Field>
-          <Field label="头像 URL"><Input value={editing.avatar} onChange={(event) => setEditing({ ...editing, avatar: event.target.value })} /></Field>
-          <Field label="状态"><Select value={editing.status} onChange={(event) => setEditing({ ...editing, status: Number(event.target.value) })}><option value="1">启用</option><option value="0">停用</option></Select></Field>
-          {canProfileUpdate && <Field label="会员分组"><Select value={editing.groupId} onChange={(event) => setEditing({ ...editing, groupId: event.target.value })}><option value="">未分组</option>{(groups.data ?? []).map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</Select></Field>}
+          <Field label={t("user.field.nickname")}><Input value={editing.nickname} onChange={(event) => setEditing({ ...editing, nickname: event.target.value })} /></Field>
+          <Field label={t("user.field.mobile")}><Input value={editing.mobile} onChange={(event) => setEditing({ ...editing, mobile: event.target.value })} placeholder={t("user.edit.mobilePlaceholder")} /></Field>
+          <Field label={t("user.field.avatar")}><Input value={editing.avatar} onChange={(event) => setEditing({ ...editing, avatar: event.target.value })} /></Field>
+          <Field label={t("user.field.status")}><Select value={editing.status} onChange={(event) => setEditing({ ...editing, status: Number(event.target.value) })}><option value="1">{t("user.status.enabled")}</option><option value="0">{t("user.status.disabled")}</option></Select></Field>
+          {canProfileUpdate && <Field label={t("user.field.memberGroup")}><Select value={editing.groupId} onChange={(event) => setEditing({ ...editing, groupId: event.target.value })}><option value="">{t("user.ungrouped")}</option>{(groups.data ?? []).map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</Select></Field>}
         </form>}
       </Drawer>
 
-      <Drawer open={levelOpen} onClose={() => setLevelOpen(false)} title="修改会员等级" description="直接改等级会写入一条等级变更记录，不改动成长值。" footer={<><Button variant="ghost" onClick={() => setLevelOpen(false)}>取消</Button><Button disabled={!levelId || levelMutation.isPending} onClick={() => levelMutation.mutate(levelId)}>{levelMutation.isPending ? "提交中…" : "确认修改"}</Button></>}>
+      <Drawer open={levelOpen} onClose={() => setLevelOpen(false)} title={t("detail.level.title")} description={t("detail.level.drawerDescription")} footer={<><Button variant="ghost" onClick={() => setLevelOpen(false)}>{t("user.cancel")}</Button><Button disabled={!levelId || levelMutation.isPending} onClick={() => levelMutation.mutate(levelId)}>{levelMutation.isPending ? t("user.submitting") : t("detail.level.confirm")}</Button></>}>
         <div className="space-y-4">
           {actionError && <ErrorLine text={actionError} />}
-          <Field label="目标等级"><Select value={levelId} onChange={(event) => setLevelId(event.target.value)}><option value="">请选择等级</option>{(levels.data ?? []).map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</Select></Field>
+          <Field label={t("detail.level.target")}><Select value={levelId} onChange={(event) => setLevelId(event.target.value)}><option value="">{t("detail.level.placeholder")}</option>{(levels.data ?? []).map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</Select></Field>
         </div>
       </Drawer>
 
-      <Drawer open={pointOpen} onClose={() => setPointOpen(false)} title="调整积分" description="积分变更会写入会员积分流水。" footer={<><Button variant="ghost" onClick={() => setPointOpen(false)}>取消</Button><Button disabled={pointMutation.isPending || pointDelta === 0} onClick={() => pointMutation.mutate(pointDelta)}>{pointMutation.isPending ? "处理中…" : "确认调整"}</Button></>}>
+      <Drawer open={pointOpen} onClose={() => setPointOpen(false)} title={t("user.action.adjustPoint")} description={t("user.point.description")} footer={<><Button variant="ghost" onClick={() => setPointOpen(false)}>{t("user.cancel")}</Button><Button disabled={pointMutation.isPending || pointDelta === 0} onClick={() => pointMutation.mutate(pointDelta)}>{pointMutation.isPending ? t("user.processing") : t("user.point.confirm")}</Button></>}>
         <div className="space-y-4">
           {actionError && <ErrorLine text={actionError} />}
           <div className="rounded-2xl bg-[var(--hero)] p-5 text-white">
-            <div className="text-xs text-white/45">当前积分</div>
+            <div className="text-xs text-white/45">{t("user.point.current")}</div>
             <div className="mt-2 text-2xl font-semibold">{growth?.point ?? 0}</div>
-            <div className="mt-4 text-xs text-[var(--primary)]">调整后 {(growth?.point ?? 0) + pointDelta}</div>
+            <div className="mt-4 text-xs text-[var(--primary)]">{t("user.point.after", { value: (growth?.point ?? 0) + pointDelta })}</div>
           </div>
-          <Field label="变更值（增加填正数，扣减填负数）"><Input type="number" value={pointDelta} onChange={(event) => setPointDelta(Number(event.target.value))} /></Field>
+          <Field label={t("user.point.deltaLabel")}><Input type="number" value={pointDelta} onChange={(event) => setPointDelta(Number(event.target.value))} /></Field>
         </div>
       </Drawer>
 
-      <Drawer open={Boolean(walletForm)} onClose={() => setWalletForm(null)} title="调整余额" description="手动充值 / 划扣会写入钱包流水并留下操作人；直接改余额不产生业务凭据，仅用于纠错。" footer={<><Button variant="ghost" onClick={() => setWalletForm(null)}>取消</Button><Button disabled={walletMutation.isPending || !walletForm || walletForm.amount === 0 || (walletForm.mode !== "balance" && !walletForm.remark.trim())} onClick={() => walletForm && walletMutation.mutate(walletForm)}>{walletMutation.isPending ? "处理中…" : "确认提交"}</Button></>}>
+      <Drawer open={Boolean(walletForm)} onClose={() => setWalletForm(null)} title={t("detail.action.adjustBalance")} description={t("detail.wallet.description")} footer={<><Button variant="ghost" onClick={() => setWalletForm(null)}>{t("user.cancel")}</Button><Button disabled={walletMutation.isPending || !walletForm || walletForm.amount === 0 || (walletForm.mode !== "balance" && !walletForm.remark.trim())} onClick={() => walletForm && walletMutation.mutate(walletForm)}>{walletMutation.isPending ? t("user.processing") : t("detail.wallet.confirm")}</Button></>}>
         {walletForm && <div className="space-y-4">
           {actionError && <ErrorLine text={actionError} />}
           <div className="rounded-2xl bg-[var(--hero)] p-5 text-white">
-            <div className="text-xs text-white/45">当前余额</div>
+            <div className="text-xs text-white/45">{t("detail.wallet.currentBalance")}</div>
             <div className="mt-2 text-2xl font-semibold">{money(wallet.data?.balance ?? 0)}</div>
-            <div className="mt-4 text-xs text-white/45">累计充值 {money(wallet.data?.totalRecharge ?? 0)} · 累计消费 {money(wallet.data?.totalExpense ?? 0)}</div>
+            <div className="mt-4 text-xs text-white/45">{t("detail.wallet.totals", { recharge: money(wallet.data?.totalRecharge ?? 0), expense: money(wallet.data?.totalExpense ?? 0) })}</div>
           </div>
-          <Field label="操作类型"><Select value={walletForm.mode} onChange={(event) => setWalletForm({ ...walletForm, mode: event.target.value as "balance" | "recharge" | "deduct" })}><option value="recharge">手动充值</option><option value="deduct">手动划扣</option><option value="balance">直接修改余额</option></Select></Field>
-          <Field label="金额（分）"><Input type="number" value={walletForm.amount} onChange={(event) => setWalletForm({ ...walletForm, amount: Number(event.target.value) })} /></Field>
+          <Field label={t("detail.wallet.mode")}><Select value={walletForm.mode} onChange={(event) => setWalletForm({ ...walletForm, mode: event.target.value as "balance" | "recharge" | "deduct" })}><option value="recharge">{t("detail.wallet.mode.recharge")}</option><option value="deduct">{t("detail.wallet.mode.deduct")}</option><option value="balance">{t("detail.wallet.mode.balance")}</option></Select></Field>
+          <Field label={t("detail.wallet.amount")}><Input type="number" value={walletForm.amount} onChange={(event) => setWalletForm({ ...walletForm, amount: Number(event.target.value) })} /></Field>
           <p className="text-[11px] text-[var(--muted-foreground)]">= {money(walletForm.amount || 0)}</p>
-          {walletForm.mode !== "balance" && <Field label="备注（必填，进流水可追溯）"><Textarea value={walletForm.remark} onChange={(event) => setWalletForm({ ...walletForm, remark: event.target.value })} /></Field>}
+          {walletForm.mode !== "balance" && <Field label={t("detail.wallet.remark")}><Textarea value={walletForm.remark} onChange={(event) => setWalletForm({ ...walletForm, remark: event.target.value })} /></Field>}
         </div>}
       </Drawer>
 
-      <Drawer open={passwordOpen} onClose={closePassword} title="重设密码" description="管理员改密不需要旧密码。" footer={<><Button variant="ghost" onClick={closePassword}>取消</Button><Button disabled={passwordMutation.isPending || password.length < 8 || password !== passwordAgain} onClick={() => passwordMutation.mutate(password)}>{passwordMutation.isPending ? "提交中…" : "确认重设"}</Button></>}>
+      <Drawer open={passwordOpen} onClose={closePassword} title={t("user.action.resetPassword")} description={t("detail.password.description")} footer={<><Button variant="ghost" onClick={closePassword}>{t("user.cancel")}</Button><Button disabled={passwordMutation.isPending || password.length < 8 || password !== passwordAgain} onClick={() => passwordMutation.mutate(password)}>{passwordMutation.isPending ? t("user.submitting") : t("user.password.confirm")}</Button></>}>
         <div className="space-y-4">
           {actionError && <ErrorLine text={actionError} />}
-          <Field label="新密码"><Input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="至少 8 位" /></Field>
-          <Field label="确认新密码"><Input type="password" autoComplete="new-password" value={passwordAgain} onChange={(event) => setPasswordAgain(event.target.value)} placeholder="再输入一次" /></Field>
-          {password.length > 0 && password.length < 8 && <p className="text-xs text-red-600">密码至少 8 位（与注册链路同一条规则）。</p>}
-          {passwordAgain.length > 0 && password !== passwordAgain && <p className="text-xs text-red-600">两次输入不一致。</p>}
-          <p className="text-[11px] text-[var(--muted-foreground)]">改完请通过安全渠道告知本人；这里不回显、也不保存明文。</p>
+          <Field label={t("user.password.new")}><Input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={t("user.password.newPlaceholder")} /></Field>
+          <Field label={t("user.password.again")}><Input type="password" autoComplete="new-password" value={passwordAgain} onChange={(event) => setPasswordAgain(event.target.value)} placeholder={t("user.password.againPlaceholder")} /></Field>
+          {password.length > 0 && password.length < 8 && <p className="text-xs text-red-600">{t("user.password.tooShort")}</p>}
+          {passwordAgain.length > 0 && password !== passwordAgain && <p className="text-xs text-red-600">{t("user.password.mismatch")}</p>}
+          <p className="text-[11px] text-[var(--muted-foreground)]">{t("user.password.hint")}</p>
         </div>
       </Drawer>
     </div>

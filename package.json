@@ -14,21 +14,21 @@
     "@neton/application-front-kit": "^1.0.0",
     "@neton/application-front-resource": "^1.0.0",
     "@neton/application-front-runtime": "^1.0.0",
+    "@neton/application-front-workspace": "^1.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "@neton/application-front-workspace": "^1.0.0"
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@neton/application-front-contract": "file:../neton-application-front/packages/front-contract",
     "@neton/application-front-kit": "file:../neton-application-front/packages/front-kit",
     "@neton/application-front-resource": "file:../neton-application-front/packages/front-resource",
     "@neton/application-front-runtime": "file:../neton-application-front/packages/front-runtime",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "typescript": "^5.7.0",
-    "@neton/application-front-workspace": "file:../neton-application-front/packages/front-workspace"
+    "@neton/application-front-workspace": "file:../neton-application-front/packages/front-workspace",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^7.0.2"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

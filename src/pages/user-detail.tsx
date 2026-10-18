@@ -5,7 +5,7 @@ import { apiFetch, apiWrite } from "@neton/application-front-runtime/client";
 import { useMutation, usePermission, useQuery, useQueryClient } from "@neton/application-front-runtime/client-context";
 import { formatDateTime, formatMoney, type PageResponse } from "@neton/application-front-runtime/types";
 import { useT, type Translate } from "@neton/application-front-runtime/i18n";
-import { useDescribeError } from "@neton/application-front-runtime/errors";
+import { useDescribeError, useDescribeFieldErrors } from "@neton/application-front-runtime/errors";
 import { WorkspaceLink, useTabTitle, useWorkspaceDirty, useWorkspaceRoute } from "@neton/application-front-workspace";
 import {
   Button,
@@ -72,7 +72,8 @@ const genderLabel = (t: Translate, gender: number) => (gender === 1 ? t("detail.
  */
 export default function AccountUserDetailPage() {
   const t = useT("account");
-  const describeError = useDescribeError();
+  const describeError = useDescribeError("account");
+  const describeFieldErrors = useDescribeFieldErrors("account");
   const client = useQueryClient();
   const canUpdate = usePermission("account:user:update");
   const canResetPassword = usePermission("account:user:update-password");
@@ -95,6 +96,8 @@ export default function AccountUserDetailPage() {
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(20);
   const [actionError, setActionError] = React.useState<string | null>(null);
+  /** 后端字段级错误（字段 → 已翻译的话），挂在编辑 / 重设密码表单对应字段下。 */
+  const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
   const [editing, setEditing] = React.useState<{ mobile: string; nickname: string; avatar: string; status: number; groupId: string } | null>(null);
   const [pointDelta, setPointDelta] = React.useState(0);
   const [pointOpen, setPointOpen] = React.useState(false);
@@ -144,7 +147,8 @@ export default function AccountUserDetailPage() {
       }
     },
     onSuccess: async () => { setEditing(null); await refreshUser(); },
-    onError: (error: Error) => setActionError(describeError(error)),
+    onMutate: () => setFieldErrors({}),
+    onError: (error: Error) => { setActionError(describeError(error)); setFieldErrors(describeFieldErrors(error)); },
   });
 
   const levelMutation = useMutation({
@@ -172,7 +176,8 @@ export default function AccountUserDetailPage() {
   const passwordMutation = useMutation({
     mutationFn: (value: string) => apiWrite<void>("/admin/account/user/update-password", "PUT", { id: uid, password: value }),
     onSuccess: () => closePassword(),
-    onError: (error: Error) => setActionError(describeError(error)),
+    onMutate: () => { setActionError(null); setFieldErrors({}); },
+    onError: (error: Error) => { setActionError(describeError(error)); setFieldErrors(describeFieldErrors(error)); },
   });
 
   const walletMutation = useMutation({
@@ -353,10 +358,10 @@ export default function AccountUserDetailPage() {
       <Drawer open={Boolean(editing)} onClose={() => setEditing(null)} title={t("user.edit.title")} footer={<><Button variant="ghost" onClick={() => setEditing(null)}>{t("user.cancel")}</Button><Button type="submit" form="account-detail-edit-form" disabled={saveMutation.isPending}>{saveMutation.isPending ? t("user.edit.saving") : t("user.edit.save")}</Button></>}>
         {editing && <form id="account-detail-edit-form" className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (!editing.nickname.trim()) return setActionError(t("user.edit.nicknameRequired")); setActionError(null); saveMutation.mutate(editing); }}>
           {actionError && <ErrorLine text={actionError} />}
-          <Field label={t("user.field.nickname")}><Input value={editing.nickname} onChange={(event) => setEditing({ ...editing, nickname: event.target.value })} /></Field>
-          <Field label={t("user.field.mobile")}><Input value={editing.mobile} onChange={(event) => setEditing({ ...editing, mobile: event.target.value })} placeholder={t("user.edit.mobilePlaceholder")} /></Field>
-          <Field label={t("user.field.avatar")}><Input value={editing.avatar} onChange={(event) => setEditing({ ...editing, avatar: event.target.value })} /></Field>
-          <Field label={t("user.field.status")}><Select value={editing.status} onChange={(event) => setEditing({ ...editing, status: Number(event.target.value) })}><option value="1">{t("user.status.enabled")}</option><option value="0">{t("user.status.disabled")}</option></Select></Field>
+          <Field label={t("user.field.nickname")} error={fieldErrors.nickname}><Input value={editing.nickname} onChange={(event) => setEditing({ ...editing, nickname: event.target.value })} /></Field>
+          <Field label={t("user.field.mobile")} error={fieldErrors.mobile}><Input value={editing.mobile} onChange={(event) => setEditing({ ...editing, mobile: event.target.value })} placeholder={t("user.edit.mobilePlaceholder")} /></Field>
+          <Field label={t("user.field.avatar")} error={fieldErrors.avatar}><Input value={editing.avatar} onChange={(event) => setEditing({ ...editing, avatar: event.target.value })} /></Field>
+          <Field label={t("user.field.status")} error={fieldErrors.status}><Select value={editing.status} onChange={(event) => setEditing({ ...editing, status: Number(event.target.value) })}><option value="1">{t("user.status.enabled")}</option><option value="0">{t("user.status.disabled")}</option></Select></Field>
           {canProfileUpdate && <Field label={t("user.field.memberGroup")}><Select value={editing.groupId} onChange={(event) => setEditing({ ...editing, groupId: event.target.value })}><option value="">{t("user.ungrouped")}</option>{(groups.data ?? []).map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</Select></Field>}
         </form>}
       </Drawer>
@@ -398,7 +403,7 @@ export default function AccountUserDetailPage() {
       <Drawer open={passwordOpen} onClose={closePassword} title={t("user.action.resetPassword")} description={t("detail.password.description")} footer={<><Button variant="ghost" onClick={closePassword}>{t("user.cancel")}</Button><Button disabled={passwordMutation.isPending || password.length < 8 || password !== passwordAgain} onClick={() => passwordMutation.mutate(password)}>{passwordMutation.isPending ? t("user.submitting") : t("user.password.confirm")}</Button></>}>
         <div className="space-y-4">
           {actionError && <ErrorLine text={actionError} />}
-          <Field label={t("user.password.new")}><Input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={t("user.password.newPlaceholder")} /></Field>
+          <Field label={t("user.password.new")} error={fieldErrors.password}><Input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={t("user.password.newPlaceholder")} /></Field>
           <Field label={t("user.password.again")}><Input type="password" autoComplete="new-password" value={passwordAgain} onChange={(event) => setPasswordAgain(event.target.value)} placeholder={t("user.password.againPlaceholder")} /></Field>
           {password.length > 0 && password.length < 8 && <p className="text-xs text-red-600">{t("user.password.tooShort")}</p>}
           {passwordAgain.length > 0 && password !== passwordAgain && <p className="text-xs text-red-600">{t("user.password.mismatch")}</p>}

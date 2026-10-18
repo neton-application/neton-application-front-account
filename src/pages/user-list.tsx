@@ -5,7 +5,7 @@ import { apiFetch, apiWrite } from "@neton/application-front-runtime/client";
 import { useMutation, usePermission, useQuery, useQueryClient } from "@neton/application-front-runtime/client-context";
 import { formatDateTime, type PageResponse } from "@neton/application-front-runtime/types";
 import { useT } from "@neton/application-front-runtime/i18n";
-import { useDescribeError } from "@neton/application-front-runtime/errors";
+import { useDescribeError, useDescribeFieldErrors } from "@neton/application-front-runtime/errors";
 import {
   Button,
   DataTable,
@@ -76,7 +76,8 @@ function LoginRegion({ value }: { value: string }) {
 
 export default function AccountUserListPage() {
   const t = useT("account");
-  const describeError = useDescribeError();
+  const describeError = useDescribeError("account");
+  const describeFieldErrors = useDescribeFieldErrors("account");
   const queryClient = useQueryClient();
   const canUpdate = usePermission("account:user:update");
   const canResetPassword = usePermission("account:user:update-password");
@@ -96,6 +97,8 @@ export default function AccountUserListPage() {
   const [pointUser, setPointUser] = React.useState<AccountUser | null>(null);
   const [pointDelta, setPointDelta] = React.useState(0);
   const [actionError, setActionError] = React.useState<string | null>(null);
+  /** 后端字段级错误（字段 → 已翻译的话），挂在编辑 / 重设密码表单对应字段下。 */
+  const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
 
   const params = new URLSearchParams({ pageNo: String(page), pageSize: String(pageSize), includeRobot: String(filters.includeRobot), includeGuest: String(filters.includeGuest) });
   // 只带上非空条件：服务端把空串当「没填」，发过去只会白跑一次 LIKE '%%'。
@@ -152,7 +155,8 @@ export default function AccountUserListPage() {
       await queryClient.invalidateQueries({ queryKey: ["account", "users"] });
       await queryClient.invalidateQueries({ queryKey: ["member", "profiles"] });
     },
-    onError: (error: Error) => setActionError(describeError(error)),
+    onMutate: () => setFieldErrors({}),
+    onError: (error: Error) => { setActionError(describeError(error)); setFieldErrors(describeFieldErrors(error)); },
   });
 
   /**
@@ -164,7 +168,8 @@ export default function AccountUserListPage() {
   const passwordMutation = useMutation({
     mutationFn: ({ id, password }: { id: number; password: string }) => apiWrite<void>("/admin/account/user/update-password", "PUT", { id, password }),
     onSuccess: () => { setPasswordUser(null); setPassword(""); setPasswordAgain(""); },
-    onError: (error: Error) => setActionError(describeError(error)),
+    onMutate: () => { setActionError(null); setFieldErrors({}); },
+    onError: (error: Error) => { setActionError(describeError(error)); setFieldErrors(describeFieldErrors(error)); },
   });
 
   const pointMutation = useMutation({
@@ -244,10 +249,10 @@ export default function AccountUserListPage() {
       <Drawer open={Boolean(editing)} onClose={() => setEditing(null)} title={t("user.edit.title")} footer={<><Button variant="ghost" onClick={() => setEditing(null)}>{t("user.cancel")}</Button><Button type="submit" form="account-edit-form" disabled={saveMutation.isPending}>{saveMutation.isPending ? t("user.edit.saving") : t("user.edit.save")}</Button></>}>
         {editing && <form id="account-edit-form" className="space-y-4" onSubmit={(event) => { event.preventDefault(); if (!editing.nickname.trim()) return setActionError(t("user.edit.nicknameRequired")); setActionError(null); saveMutation.mutate(editing); }}>
           {actionError && <div className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">{actionError}</div>}
-          <Field label={t("user.field.nickname")}><Input value={editing.nickname} onChange={(event) => setEditing({ ...editing, nickname: event.target.value })} /></Field>
-          <Field label={t("user.field.mobile")}><Input value={editing.mobile} onChange={(event) => setEditing({ ...editing, mobile: event.target.value })} placeholder={t("user.edit.mobilePlaceholder")} /></Field>
-          <Field label={t("user.field.avatar")}><Input value={editing.avatar} onChange={(event) => setEditing({ ...editing, avatar: event.target.value })} /></Field>
-          <Field label={t("user.field.status")}><Select value={editing.status} onChange={(event) => setEditing({ ...editing, status: Number(event.target.value) })}><option value="1">{t("user.status.enabled")}</option><option value="0">{t("user.status.disabled")}</option></Select></Field>
+          <Field label={t("user.field.nickname")} error={fieldErrors.nickname}><Input value={editing.nickname} onChange={(event) => setEditing({ ...editing, nickname: event.target.value })} /></Field>
+          <Field label={t("user.field.mobile")} error={fieldErrors.mobile}><Input value={editing.mobile} onChange={(event) => setEditing({ ...editing, mobile: event.target.value })} placeholder={t("user.edit.mobilePlaceholder")} /></Field>
+          <Field label={t("user.field.avatar")} error={fieldErrors.avatar}><Input value={editing.avatar} onChange={(event) => setEditing({ ...editing, avatar: event.target.value })} /></Field>
+          <Field label={t("user.field.status")} error={fieldErrors.status}><Select value={editing.status} onChange={(event) => setEditing({ ...editing, status: Number(event.target.value) })}><option value="1">{t("user.status.enabled")}</option><option value="0">{t("user.status.disabled")}</option></Select></Field>
           {canProfileUpdate && <Field label={t("user.field.memberLevel")}><Select value={editing.levelId} onChange={(event) => setEditing({ ...editing, levelId: event.target.value })}><option value="">{t("user.defaultLevel")}</option>{(levels.data ?? []).map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</Select></Field>}
           {canProfileUpdate && <Field label={t("user.field.memberGroup")}><Select value={editing.groupId} onChange={(event) => setEditing({ ...editing, groupId: event.target.value })}><option value="">{t("user.ungrouped")}</option>{(groups.data ?? []).map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)}</Select></Field>}
         </form>}
@@ -255,7 +260,8 @@ export default function AccountUserListPage() {
 
       <Drawer open={Boolean(passwordUser)} onClose={() => { setPasswordUser(null); setPassword(""); setPasswordAgain(""); }} title={t("user.action.resetPassword")} description={passwordUser ? t("list.password.descriptionFor", { name: passwordUser.nickname || passwordUser.id }) : undefined} footer={<><Button variant="ghost" onClick={() => { setPasswordUser(null); setPassword(""); setPasswordAgain(""); }}>{t("user.cancel")}</Button><Button disabled={passwordMutation.isPending || password.length < 8 || password !== passwordAgain} onClick={() => passwordUser && passwordMutation.mutate({ id: passwordUser.id, password })}>{passwordMutation.isPending ? t("user.submitting") : t("user.password.confirm")}</Button></>}>
         <div className="space-y-4">
-          <Field label={t("user.password.new")}><Input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("user.password.newPlaceholder")} /></Field>
+          {actionError && <div className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">{actionError}</div>}
+          <Field label={t("user.password.new")} error={fieldErrors.password}><Input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("user.password.newPlaceholder")} /></Field>
           <Field label={t("user.password.again")}><Input type="password" autoComplete="new-password" value={passwordAgain} onChange={(e) => setPasswordAgain(e.target.value)} placeholder={t("user.password.againPlaceholder")} /></Field>
           {password.length > 0 && password.length < 8 && <p className="text-xs text-red-600">{t("user.password.tooShort")}</p>}
           {passwordAgain.length > 0 && password !== passwordAgain && <p className="text-xs text-red-600">{t("user.password.mismatch")}</p>}

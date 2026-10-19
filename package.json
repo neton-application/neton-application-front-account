@@ -24,6 +24,7 @@
     "@neton/application-front-resource": "file:../neton-application-front/packages/front-resource",
     "@neton/application-front-runtime": "file:../neton-application-front/packages/front-runtime",
     "@neton/application-front-workspace": "file:../neton-application-front/packages/front-workspace",
+    "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "react": "^19.3.0",
